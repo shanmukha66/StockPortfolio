@@ -94,3 +94,8 @@ use the following commands on terminal :
 3. pip install -r requirements.txt
 4. python main.py
 
+
+## 📺 Demo Video
+Check out our project demo video:
+[![Stock Portfolio Manager Demo](https://img.youtube.com/vi/FufH7vW2hjM/0.jpg)](https://youtu.be/FufH7vW2hjM?feature=shared)
+
