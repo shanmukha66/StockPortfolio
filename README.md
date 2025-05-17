@@ -7,6 +7,7 @@ The Smart Stock Portfolio Manager is a Python-based desktop application designed
 ## 👥 Team Members
 
 Rishabh Malviya SJSU ID:018190419
+
 Shanmukha Manoj Kakani SJSU ID:018195645
 
 
