@@ -10,6 +10,11 @@ Rishabh Malviya SJSU ID:018190419
 
 Shanmukha Manoj Kakani SJSU ID:018195645
 
+Vineela Mukkamala(018217992)
+
+Adityaraj Kaushik (017631471)
+
+
 
 ## 🚀 Features
 
@@ -88,4 +93,9 @@ use the following commands on terminal :
 2. source venv/bin/activate
 3. pip install -r requirements.txt
 4. python main.py
+
+
+## 📺 Demo Video
+Check out our project demo video:
+[![Stock Portfolio Manager Demo](https://img.youtube.com/vi/FufH7vW2hjM/0.jpg)](https://youtu.be/FufH7vW2hjM?feature=shared)
 
