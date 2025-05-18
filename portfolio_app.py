@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+import time
+from functools import lru_cache
 
 class StockPortfolioApp(QTabWidget):
     def __init__(self):
@@ -133,88 +135,114 @@ class StockPortfolioApp(QTabWidget):
         current_row = 0
         info_row = 0
         
-        for symbol in stocks:
+        # Batch download 5-day history for all stocks
+        stock_symbols = ' '.join(stocks)
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
-                stock = yf.Ticker(symbol)
-                
-                # Get last 5 days of data
-                hist = stock.history(period='5d')
-                for index, row in hist.iterrows():
-                    self.daily_table.insertRow(current_row)
-                    self.daily_table.setItem(current_row, 0, QTableWidgetItem(symbol))
-                    self.daily_table.setItem(current_row, 1, QTableWidgetItem(index.strftime('%Y-%m-%d')))
-                    self.daily_table.setItem(current_row, 2, QTableWidgetItem(f"${row['Open']:.2f}"))
-                    self.daily_table.setItem(current_row, 3, QTableWidgetItem(f"${row['High']:.2f}"))
-                    self.daily_table.setItem(current_row, 4, QTableWidgetItem(f"${row['Low']:.2f}"))
-                    self.daily_table.setItem(current_row, 5, QTableWidgetItem(f"${row['Close']:.2f}"))
-                    self.daily_table.setItem(current_row, 6, QTableWidgetItem(f"{row['Volume']:,}"))
-                    current_row += 1
-                
-                # Get stock info
-                info = stock.info
-                self.info_table.insertRow(info_row)
-                self.info_table.setItem(info_row, 0, QTableWidgetItem(symbol))
-                self.info_table.setItem(info_row, 1, QTableWidgetItem(f"${info.get('marketCap', 0)/1e9:.2f}B"))
-                self.info_table.setItem(info_row, 2, QTableWidgetItem(f"{info.get('forwardPE', 'N/A')}"))
-                self.info_table.setItem(info_row, 3, QTableWidgetItem(f"{info.get('dividendYield', 0)*100:.2f}%"))
-                self.info_table.setItem(info_row, 4, QTableWidgetItem(f"${info.get('fiftyTwoWeekHigh', 0):.2f}"))
-                self.info_table.setItem(info_row, 5, QTableWidgetItem(f"${info.get('fiftyTwoWeekLow', 0):.2f}"))
-                self.info_table.setItem(info_row, 6, QTableWidgetItem(f"{info.get('averageVolume', 0):,}"))
-                info_row += 1
-                
+                hist_data = yf.download(stock_symbols, period='5d', group_by='ticker', threads=False)
+                break
             except Exception as e:
-                print(f"Error getting data for {symbol}: {str(e)}")
-                
+                if 'Too Many Requests' in str(e) and attempt < max_retries - 1:
+                    print(f"Rate limited. Retrying batch download after 5 seconds...")
+                    time.sleep(5)
+                else:
+                    print(f"Failed to batch download: {str(e)}")
+                    hist_data = None
+        if hist_data is not None:
+            for symbol in stocks:
+                try:
+                    if symbol in hist_data:
+                        hist = hist_data[symbol]
+                    else:
+                        hist = hist_data
+                    for index, row in hist.iterrows():
+                        self.daily_table.insertRow(current_row)
+                        self.daily_table.setItem(current_row, 0, QTableWidgetItem(symbol))
+                        self.daily_table.setItem(current_row, 1, QTableWidgetItem(index.strftime('%Y-%m-%d')))
+                        self.daily_table.setItem(current_row, 2, QTableWidgetItem(f"${row['Open']:.2f}"))
+                        self.daily_table.setItem(current_row, 3, QTableWidgetItem(f"${row['High']:.2f}"))
+                        self.daily_table.setItem(current_row, 4, QTableWidgetItem(f"${row['Low']:.2f}"))
+                        self.daily_table.setItem(current_row, 5, QTableWidgetItem(f"${row['Close']:.2f}"))
+                        self.daily_table.setItem(current_row, 6, QTableWidgetItem(f"{int(row['Volume']):,}"))
+                        current_row += 1
+                except Exception as e:
+                    print(f"Error processing history for {symbol}: {str(e)}")
+        
+        # Stock info (still per-stock, but with retry)
+        for symbol in stocks:
+            for attempt in range(max_retries):
+                try:
+                    stock = yf.Ticker(symbol)
+                    info = stock.info
+                    self.info_table.insertRow(info_row)
+                    self.info_table.setItem(info_row, 0, QTableWidgetItem(symbol))
+                    self.info_table.setItem(info_row, 1, QTableWidgetItem(f"${info.get('marketCap', 0)/1e9:.2f}B"))
+                    self.info_table.setItem(info_row, 2, QTableWidgetItem(f"{info.get('forwardPE', 'N/A')}"))
+                    self.info_table.setItem(info_row, 3, QTableWidgetItem(f"{info.get('dividendYield', 0)*100:.2f}%"))
+                    self.info_table.setItem(info_row, 4, QTableWidgetItem(f"${info.get('fiftyTwoWeekHigh', 0):.2f}"))
+                    self.info_table.setItem(info_row, 5, QTableWidgetItem(f"${info.get('fiftyTwoWeekLow', 0):.2f}"))
+                    self.info_table.setItem(info_row, 6, QTableWidgetItem(f"{info.get('averageVolume', 0):,}"))
+                    info_row += 1
+                    break
+                except Exception as e:
+                    if 'Too Many Requests' in str(e) and attempt < max_retries - 1:
+                        print(f"Rate limited. Retrying info for {symbol} after 5 seconds...")
+                        time.sleep(5)
+                    else:
+                        print(f"Error getting info for {symbol}: {str(e)}")
+                        break
+        
         self.daily_table.resizeColumnsToContents()
         self.info_table.resizeColumnsToContents()
+
     def calculate_smart_allocation(self, stocks, total_amount):
         stock_metrics = {}
+        stock_symbols = ' '.join(stocks)
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                hist_data = yf.download(stock_symbols, period='1y', group_by='ticker', threads=False)
+                break
+            except Exception as e:
+                if 'Too Many Requests' in str(e) and attempt < max_retries - 1:
+                    print(f"Rate limited. Retrying batch download after 5 seconds...")
+                    time.sleep(5)
+                else:
+                    print(f"Failed to batch download: {str(e)}")
+                    hist_data = None
         for symbol in stocks:
             try:
-                stock = yf.Ticker(symbol)
-                
-                # Get 1-year historical data
-                hist = stock.history(period='1y')
-                
-                # Calculate key metrics
+                if hist_data is not None and symbol in hist_data:
+                    hist = hist_data[symbol]
+                else:
+                    hist = hist_data
+                # Check if hist is empty or too short
+                if hist is None or hist.empty or len(hist['Close']) < 2:
+                    print(f"Insufficient data for {symbol}, skipping metrics calculation.")
+                    stock_metrics[symbol] = 0.1
+                    continue
                 returns = hist['Close'].pct_change()
-                
-                # Average daily return
                 avg_return = returns.mean()
-                
-                # Volatility (risk)
                 volatility = returns.std()
-                
-                # Sharpe ratio (return per unit of risk)
                 sharpe_ratio = (avg_return / volatility) if volatility != 0 else 0
-                
-                # ROI over the period
                 roi = (hist['Close'].iloc[-1] - hist['Close'].iloc[0]) / hist['Close'].iloc[0]
-                
-                # Volume trend (higher volume might indicate more stability)
                 volume_trend = hist['Volume'].mean() / hist['Volume'].std() if hist['Volume'].std() != 0 else 0
-                
-                # Composite score combining multiple factors
                 score = (
-                    0.3 * sharpe_ratio +  # 30% weight to risk-adjusted returns
-                    0.3 * roi +           # 30% weight to overall returns
-                    0.2 * avg_return +    # 20% weight to average daily returns
-                    0.2 * volume_trend    # 20% weight to volume stability
+                    0.3 * sharpe_ratio +
+                    0.3 * roi +
+                    0.2 * avg_return +
+                    0.2 * volume_trend
                 )
-                
-                stock_metrics[symbol] = max(score, 0.1)  # Ensure minimum allocation
-                
+                stock_metrics[symbol] = max(score, 0.1)
             except Exception as e:
                 print(f"Error calculating metrics for {symbol}: {str(e)}")
-                stock_metrics[symbol] = 0.1  # Default to minimum allocation
-        
-        # Normalize scores to get allocation percentages
+                stock_metrics[symbol] = 0.1
         total_score = sum(stock_metrics.values())
         allocations = {
             symbol: (score / total_score) * total_amount 
             for symbol, score in stock_metrics.items()
         }
-        
         return allocations
 
     def calculate_portfolio(self):
@@ -243,70 +271,94 @@ class StockPortfolioApp(QTabWidget):
             # Calculate smart allocation instead of equal distribution
             allocations = self.calculate_smart_allocation(stocks, amount)
             
-            # Get current stock prices and calculate shares
+            # Batch download current prices for all stocks
+            stock_symbols = ' '.join(stocks)
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    current_data = yf.download(stock_symbols, period='1d', group_by='ticker', threads=False)
+                    break
+                except Exception as e:
+                    if 'Too Many Requests' in str(e) and attempt < max_retries - 1:
+                        print(f"Rate limited. Retrying batch download after 10 seconds...")
+                        time.sleep(10)
+                    else:
+                        print(f"Failed to batch download: {str(e)}")
+                        current_data = None
             portfolio = {}
             total_value = 0
             result_text = "Portfolio Summary:\n\n"
-            
             values_for_pie = []
             labels_for_pie = []
-            
             for symbol in stocks:
-                stock = yf.Ticker(symbol)
-                hist = stock.history(period='1d')
-                current_price = hist['Close'].iloc[-1]
-                
-                # Use allocated amount instead of equal distribution
-                allocated_amount = allocations[symbol]
-                shares = allocated_amount / current_price
-                value = shares * current_price
-                
-                portfolio[symbol] = {
-                    'shares': shares,
-                    'current_price': current_price,
-                    'value': value,
-                    'allocation_percentage': (allocated_amount / amount) * 100
-                }
-                total_value += value
-                
-                result_text += f"{symbol}:\n"
-                result_text += f"Allocation: ${allocated_amount:.2f} ({portfolio[symbol]['allocation_percentage']:.1f}%)\n"
-                result_text += f"Shares: {shares:.2f}\n"
-                result_text += f"Current Price: ${current_price:.2f}\n"
-                result_text += f"Value: ${value:.2f}\n\n"
-                
-                values_for_pie.append(value)
-                labels_for_pie.append(f"{symbol}\n({portfolio[symbol]['allocation_percentage']:.1f}%)")
-        
-            
-            # Get historical data
+                try:
+                    if current_data is not None and symbol in current_data:
+                        hist = current_data[symbol]
+                    else:
+                        hist = current_data
+                    if hist is None or hist.empty or 'Close' not in hist or len(hist['Close']) == 0:
+                        print(f"No current price data for {symbol}, skipping.")
+                        continue
+                    current_price = hist['Close'].iloc[-1]
+                    allocated_amount = allocations[symbol]
+                    shares = allocated_amount / current_price
+                    value = shares * current_price
+                    portfolio[symbol] = {
+                        'shares': shares,
+                        'current_price': current_price,
+                        'value': value,
+                        'allocation_percentage': (allocated_amount / amount) * 100
+                    }
+                    total_value += value
+                    result_text += f"{symbol}:\n"
+                    result_text += f"Allocation: ${allocated_amount:.2f} ({portfolio[symbol]['allocation_percentage']:.1f}%)\n"
+                    result_text += f"Shares: {shares:.2f}\n"
+                    result_text += f"Current Price: ${current_price:.2f}\n"
+                    result_text += f"Value: ${value:.2f}\n\n"
+                    values_for_pie.append(value)
+                    labels_for_pie.append(f"{symbol}\n({portfolio[symbol]['allocation_percentage']:.1f}%)")
+                except Exception as e:
+                    print(f"Error processing {symbol}: {str(e)}")
+            # Batch download 5-day historical data for all stocks
             end_date = datetime.now()
             start_date = end_date - timedelta(days=5)
-            
+            for attempt in range(max_retries):
+                try:
+                    hist_data = yf.download(stock_symbols, start=start_date, end=end_date, group_by='ticker', threads=False)
+                    break
+                except Exception as e:
+                    if 'Too Many Requests' in str(e) and attempt < max_retries - 1:
+                        print(f"Rate limited. Retrying batch download after 10 seconds...")
+                        time.sleep(10)
+                    else:
+                        print(f"Failed to batch download: {str(e)}")
+                        hist_data = None
             historical_values = pd.Series(dtype='float64')
-            
             for symbol in stocks:
-                stock = yf.Ticker(symbol)
-                hist = stock.history(start=start_date, end=end_date)
-                shares = portfolio[symbol]['shares']
-                hist_values = hist['Close'] * shares
-                if historical_values.empty:
-                    historical_values = hist_values
-                else:
-                    historical_values = historical_values.add(hist_values, fill_value=0)
-            
+                try:
+                    if hist_data is not None and symbol in hist_data:
+                        hist = hist_data[symbol]
+                    else:
+                        hist = hist_data
+                    if hist is None or hist.empty or 'Close' not in hist or len(hist['Close']) == 0:
+                        print(f"No historical data for {symbol}, skipping.")
+                        continue
+                    shares = portfolio[symbol]['shares'] if symbol in portfolio else 0
+                    hist_values = hist['Close'] * shares
+                    if historical_values.empty:
+                        historical_values = hist_values
+                    else:
+                        historical_values = historical_values.add(hist_values, fill_value=0)
+                except Exception as e:
+                    print(f"Error processing historical data for {symbol}: {str(e)}")
             result_text += "5-Day Portfolio History:\n"
             for date, value in historical_values.items():
                 result_text += f"{date.strftime('%Y-%m-%d')}: ${value:.2f}\n"
-            
             self.results_label.setText(result_text)
-            
             # Update charts
             self.update_charts(labels_for_pie, values_for_pie, historical_values)
-            
             # Update stock details
             self.update_stock_details(stocks)
-            
             # Enable and switch to Charts tab
             self.setTabEnabled(1, True)
             self.setTabEnabled(2, True)
