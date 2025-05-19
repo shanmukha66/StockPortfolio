@@ -96,6 +96,9 @@ use the following commands on terminal :
 
 
 ## 📺 Demo Video
+
 Check out our project demo video:
-[![Stock Portfolio Manager Demo](https://youtu.be/MIdOyJR6L68)
+
+[![Stock Portfolio Manager Demo](https://img.youtube.com/vi/MIdOyJR6L68/0.jpg)](https://youtu.be/MIdOyJR6L68)
+
 
